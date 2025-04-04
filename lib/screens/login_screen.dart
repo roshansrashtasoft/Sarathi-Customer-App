@@ -192,21 +192,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _handleLogin() async {
     if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
+      setState(() => _isLoading = true);
       try {
-        final adminCredentials =
-            await _firestore
-                .collection('customers')
-                .where('email', isEqualTo: _emailController.text)
-                .where('password', isEqualTo: _passwordController.text)
-                .get();
+        final adminCredentials = await _firestore
+            .collection('customers')
+            .where('email', isEqualTo: _emailController.text)
+            .where('password', isEqualTo: _passwordController.text)
+            .get();
 
         if (adminCredentials.docs.isNotEmpty) {
-          // Set login status
           final prefs = await SharedPreferences.getInstance();
           await prefs.setBool('isLogin', true);
+          await prefs.setString('userEmail', _emailController.text); // Add this line
 
           Navigator.pushAndRemoveUntil(
             context,
