@@ -12,167 +12,164 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final CustomerService _customerService = CustomerService();
-  DocumentSnapshot? _customerData;
-  bool _isLoading = true;
+  Stream<QuerySnapshot>? _customerStream; // Updated type
 
   @override
   void initState() {
     super.initState();
-    _loadCustomerData();
-  }
-
-  Future<void> _loadCustomerData() async {
-    try {
-      final customer = await _customerService.getCurrentCustomer();
-      setState(() {
-        _customerData = customer;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() => _isLoading = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error loading data: $e')));
-    }
+    _customerStream = _customerService.getCurrentCustomerStream();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    if (_customerData == null) {
-      return const Scaffold(
-        body: Center(child: Text('No customer data found')),
-      );
-    }
-
-    final data = _customerData!.data() as Map<String, dynamic>;
-
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
+        forceMaterialTransparency: true,
         backgroundColor: Colors.white,
         elevation: 0,
-        title: const Text(
-          'Sarathi Innovations',
-          style: TextStyle(
-            color: Colors.black87,
-            fontWeight: FontWeight.bold,
-            fontSize: 22,
-          ),
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        title: Row(
           children: [
-            _buildProfileHeader(data),
-            const SizedBox(height: 20),
-            _buildDetailCard('Personal Information', [
-              _buildDetailRow('Name', data['name']),
-              _buildDetailRow('Email', data['email']),
-              _buildDetailRow('Phone', data['phone']),
-              _buildDetailRow('Address', data['address']),
-            ]),
-            const SizedBox(height: 20),
-            if (data['documents'] != null) ...[
-              _buildDocumentsSection(data['documents'] as List),
-            ],
+            const SizedBox(width: 12),
+            const Text(
+              'Sarathi Innovations',
+              style: TextStyle(
+                color: Colors.black87,
+                fontWeight: FontWeight.bold,
+                fontSize: 22,
+              ),
+            ),
           ],
         ),
       ),
-    );
-  }
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _customerStream,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Loading your profile...',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 16),
+                  ),
+                ],
+              ),
+            );
+          }
 
-  Widget _buildProfileHeader(Map<String, dynamic> data) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.person, size: 40, color: Colors.grey[600]),
-          ),
-          const SizedBox(width: 20),
-          Expanded(
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.error_outline, size: 60, color: Colors.red[300]),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Error: ${snapshot.error}',
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.person_off, size: 60, color: Colors.grey[400]),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'No customer data found',
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          final data = snapshot.data!.docs.first.data() as Map<String, dynamic>;
+
+          return SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  data['name'] ?? 'N/A',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                const SizedBox(height: 24),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSectionTitle('Personal Information'),
+                      const SizedBox(height: 16),
+                      _buildDetailCard([
+                        _buildDetailRow('Name', data['name']),
+                        _buildDetailRow('Email', data['email']),
+                        _buildDetailRow('Phone', data['phone']),
+                        _buildDetailRow('Address', data['address']),
+                      ]),
+                      const SizedBox(height: 24),
+                      if (data['documents'] != null) ...[
+                        _buildSectionTitle('Documents'),
+                        const SizedBox(height: 16),
+                        _buildDocumentsGrid(data['documents'] as List),
+                      ],
+                      const SizedBox(height: 32),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  data['email'] ?? 'N/A',
-                  style: TextStyle(fontSize: 16, color: Colors.grey[600]),
                 ),
               ],
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildDetailCard(String title, List<Widget> children) {
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.bold,
+        color: Colors.black87,
+      ),
+    );
+  }
+
+  Widget _buildDetailCard(List<Widget> children) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withOpacity(0.04),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 20),
-          ...children,
-        ],
-      ),
+      child: Column(children: children),
     );
   }
 
   Widget _buildDetailRow(String label, String? value) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -182,7 +179,7 @@ class _HomeScreenState extends State<HomeScreen> {
               label,
               style: TextStyle(
                 color: Colors.grey[600],
-                fontSize: 16,
+                fontSize: 15,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -191,7 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Text(
               value ?? 'N/A',
               style: const TextStyle(
-                fontSize: 16,
+                fontSize: 15,
                 fontWeight: FontWeight.w500,
                 color: Colors.black87,
               ),
@@ -202,42 +199,64 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildDocumentsSection(List documents) {
-    return _buildDetailCard(
-      'Documents',
-      documents.map((doc) => _buildDocumentRow(doc)).toList(),
+  Widget _buildDocumentsGrid(List documents) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        childAspectRatio: 1.3,
+      ),
+      itemCount: documents.length,
+      itemBuilder: (context, index) => _buildDocumentCard(documents[index]),
     );
   }
 
-  Widget _buildDocumentRow(Map<String, dynamic> doc) {
+  Widget _buildDocumentCard(Map<String, dynamic> doc) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey[200]!),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            doc['type'] == 'pdf' ? Icons.picture_as_pdf : Icons.image,
-            color: Colors.grey[700],
-            size: 24,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              doc['name'],
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.open_in_new),
-            color: Colors.blue,
-            onPressed: () => _launchUrl(doc['url']),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
         ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _launchUrl(doc['url']),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  doc['type'] == 'pdf' ? Icons.picture_as_pdf : Icons.image,
+                  color: Colors.black,
+                  size: 32,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  doc['name'],
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
