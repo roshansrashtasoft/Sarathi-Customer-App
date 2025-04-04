@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:sarathi_customer/screens/web_view.dart';
 import 'package:sarathi_customer/services/customer_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -234,7 +235,14 @@ class _HomeScreenState extends State<HomeScreen> {
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(16),
-            onTap: () => _launchUrl(doc['url']),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => WebView(arguments: doc['url']),
+                ),
+              );
+            },
+            // onTap: () => _launchUrl(doc['url']),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
