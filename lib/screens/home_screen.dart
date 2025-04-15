@@ -1,8 +1,14 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:sarathi_customer/screens/web_view.dart';
 import 'package:sarathi_customer/services/customer_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import 'document_slider_screen.dart';
+import 'login_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -42,6 +48,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(onPressed:  () => handleLogout(context), icon: Icon(Icons.logout))
+        ],
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: _customerStream,
@@ -203,6 +212,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildDocumentsGrid(List documents) {
+    final List<Map<String, dynamic>> typedDocs = 
+      documents.map((doc) => doc as Map<String, dynamic>).toList();
+      
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -210,14 +222,14 @@ class _HomeScreenState extends State<HomeScreen> {
         crossAxisCount: 2,
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
-        childAspectRatio: 1.3,
+        childAspectRatio: 1.2,
       ),
       itemCount: documents.length,
-      itemBuilder: (context, index) => _buildDocumentCard(documents[index]),
+      itemBuilder: (context, index) => _buildDocumentCard(typedDocs[index], typedDocs),
     );
   }
 
-  Widget _buildDocumentCard(Map<String, dynamic> doc) {
+  Widget _buildDocumentCard(Map<String, dynamic> doc, List<Map<String, dynamic>> allDocs) {
     return Card(
       child: Container(
         decoration: BoxDecoration(
@@ -236,13 +248,16 @@ class _HomeScreenState extends State<HomeScreen> {
           child: InkWell(
             borderRadius: BorderRadius.circular(16),
             onTap: () {
+              final currentIndex = allDocs.indexWhere((d) => d['url'] == doc['url']);
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (context) => WebView(arguments: doc['url']),
+                  builder: (context) => DocumentSliderScreen(
+                    documents: allDocs,
+                    initialIndex: currentIndex,
+                  ),
                 ),
               );
             },
-            // onTap: () => _launchUrl(doc['url']),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -271,6 +286,90 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  void handleLogout(BuildContext context) async {
+    final confirmed = await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirm Logout', textAlign: TextAlign.center),
+          backgroundColor: Colors.white,
+          content: const Text(
+            'Are you sure you want to logout?',
+            textAlign: TextAlign.center,
+          ),
+          actionsPadding: const EdgeInsets.all(16),
+          actions: [
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      backgroundColor: Colors.grey[200],
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(color: Colors.black),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      backgroundColor: Colors.red,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: const Text(
+                      'Logout',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      try {
+        // Clear all local data (SharedPreferences)
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.clear();
+
+        // Sign out from Firebase Auth
+        await FirebaseAuth.instance.signOut();
+
+        if (context.mounted) {
+          // Navigate to login screen and remove all previous routes
+          // Navigator.of(
+          //   context,
+          // ).pushNamedAndRemoveUntil('/login', (route) => false);
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => LoginScreen()),
+                (Route<dynamic> route) => false,
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error during logout: $e')));
+        }
+      }
+    }
   }
 
   Future<void> _launchUrl(String url) async {
