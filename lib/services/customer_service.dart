@@ -3,20 +3,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class CustomerService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  Stream<QuerySnapshot>? _customerStream;
 
-  Future<String?> _getUserEmail() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('userEmail');
-  }
-
-  Stream<QuerySnapshot> getCurrentCustomerStream() async* {
-    final userEmail = await _getUserEmail();
-    if (userEmail != null) {
-      yield* _firestore
+  Stream<QuerySnapshot> getCurrentCustomerStream() {
+    if (_customerStream == null) {
+      _customerStream = FirebaseFirestore.instance
           .collection('customers')
-          .where('email', isEqualTo: userEmail)
-          .snapshots();
+          .where('uid', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
+          .snapshots()
+          .asBroadcastStream();
     }
+    return _customerStream!;
   }
 }

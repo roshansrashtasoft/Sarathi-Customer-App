@@ -2,6 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
+import 'package:sarathi_customer/screens/profile_screen.dart';
 import 'package:sarathi_customer/screens/web_view.dart';
 import 'package:sarathi_customer/services/customer_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,12 +21,28 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final CustomerService _customerService = CustomerService();
-  Stream<QuerySnapshot>? _customerStream; // Updated type
+  late final Stream<QuerySnapshot> _customerStream;
+  DateFormat dateFormat = DateFormat("dd MMMM yyyy");
 
   @override
   void initState() {
     super.initState();
     _customerStream = _customerService.getCurrentCustomerStream();
+  }
+
+  String _formatTimestamp(dynamic timestamp) {
+    if (timestamp == null) return 'N/A';
+
+    if (timestamp is Timestamp) {
+      return dateFormat.format(timestamp.toDate());
+    } else if (timestamp is String) {
+      try {
+        return dateFormat.format(DateTime.parse(timestamp));
+      } catch (e) {
+        return timestamp;
+      }
+    }
+    return 'N/A';
   }
 
   @override
@@ -35,77 +53,51 @@ class _HomeScreenState extends State<HomeScreen> {
         forceMaterialTransparency: true,
         backgroundColor: Colors.white,
         elevation: 0,
-        title: Row(
-          children: [
-            const SizedBox(width: 12),
-            const Text(
-              'Sarathi Innovations',
-              style: TextStyle(
-                color: Colors.black87,
-                fontWeight: FontWeight.bold,
-                fontSize: 22,
-              ),
-            ),
-          ],
+        leading: StreamBuilder<QuerySnapshot>(
+          stream: _customerStream,
+          builder: (context, snapshot) {
+            return IconButton(
+              icon: const Icon(Icons.person_outline, color: Colors.black87),
+              onPressed: () {
+                if (snapshot.hasData) {
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => ProfileScreen(
+                      userData: snapshot.data!.docs.first.data() as Map<String, dynamic>,
+                    ),
+                  );
+                }
+              },
+            );
+          },
+        ),
+        title: const Text(
+          'Sarathi Innovations',
+          style: TextStyle(
+            color: Colors.black87,
+            fontWeight: FontWeight.bold,
+            fontSize: 22,
+          ),
         ),
         actions: [
-          IconButton(onPressed:  () => handleLogout(context), icon: Icon(Icons.logout))
+          IconButton(
+            onPressed: () => handleLogout(context),
+            icon: const Icon(Icons.logout, color: Colors.black87)
+          )
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: _customerStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Loading your profile...',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 16),
-                  ),
-                ],
-              ),
-            );
+            return const Center(child: CircularProgressIndicator());
           }
 
-          if (snapshot.hasError) {
+          if (snapshot.hasError || !snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline, size: 60, color: Colors.red[300]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Error: ${snapshot.error}',
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.person_off, size: 60, color: Colors.grey[400]),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'No customer data found',
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
+              child: Text('No documents available', style: TextStyle(color: Colors.grey[600])),
             );
           }
 
@@ -122,15 +114,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildSectionTitle('Personal Information'),
-                      const SizedBox(height: 16),
-                      _buildDetailCard([
-                        _buildDetailRow('Name', data['name']),
-                        _buildDetailRow('Email', data['email']),
-                        _buildDetailRow('Phone', data['phone']),
-                        _buildDetailRow('Address', data['address']),
-                      ]),
-                      const SizedBox(height: 24),
                       if (data['documents'] != null) ...[
                         _buildSectionTitle('Documents'),
                         const SizedBox(height: 16),
@@ -179,37 +162,37 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildDetailRow(String label, String? value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: TextStyle(
-                color: Colors.grey[600],
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value ?? 'N/A',
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
-                color: Colors.black87,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // Widget _buildDetailRow(String label, String? value) {
+  //   return Padding(
+  //     padding: const EdgeInsets.symmetric(vertical: 12),
+  //     child: Row(
+  //       crossAxisAlignment: CrossAxisAlignment.start,
+  //       children: [
+  //         SizedBox(
+  //           width: 100,
+  //           child: Text(
+  //             label,
+  //             style: TextStyle(
+  //               color: Colors.grey[600],
+  //               fontSize: 15,
+  //               fontWeight: FontWeight.w500,
+  //             ),
+  //           ),
+  //         ),
+  //         Expanded(
+  //           child: Text(
+  //             value ?? 'N/A',
+  //             style: const TextStyle(
+  //               fontSize: 15,
+  //               fontWeight: FontWeight.w500,
+  //               color: Colors.black87,
+  //             ),
+  //           ),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
 
   Widget _buildDocumentsGrid(List documents) {
     final List<Map<String, dynamic>> typedDocs = 
@@ -222,7 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
         crossAxisCount: 2,
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
-        childAspectRatio: 1.2,
+        childAspectRatio: 1.0,
       ),
       itemCount: documents.length,
       itemBuilder: (context, index) => _buildDocumentCard(typedDocs[index], typedDocs),
@@ -269,15 +252,29 @@ class _HomeScreenState extends State<HomeScreen> {
                     size: 32,
                   ),
                   const SizedBox(height: 12),
-                  Text(
-                    doc['name'],
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
+                  Column(
+                    children: [
+                      Text(
+                        doc['name'],
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        _formatTimestamp(   doc['uploadedAt']),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
