@@ -339,21 +339,12 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
-
     if (confirmed == true) {
       try {
-        // Clear all local data (SharedPreferences)
         final prefs = await SharedPreferences.getInstance();
         await prefs.clear();
-
-        // Sign out from Firebase Auth
         await FirebaseAuth.instance.signOut();
-
         if (context.mounted) {
-          // Navigate to login screen and remove all previous routes
-          // Navigator.of(
-          //   context,
-          // ).pushNamedAndRemoveUntil('/login', (route) => false);
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (context) => LoginScreen()),
                 (Route<dynamic> route) => false,
