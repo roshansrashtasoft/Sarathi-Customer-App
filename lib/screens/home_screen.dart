@@ -43,11 +43,13 @@ class _HomeScreenState extends State<HomeScreen> {
           final data = doc.data() as Map<String, dynamic>;
           if (data['files'] != null) {
             final files = List<Map<String, dynamic>>.from(data['files']);
-            // Convert Google Drive view URLs to direct download URLs
             final processedFiles = files.map((file) {
               if (file['url'] != null && file['url'].toString().contains('drive.google.com')) {
                 final fileId = _extractDriveFileId(file['url'].toString());
-                file['url'] = 'https://drive.google.com/uc?export=view&id=$fileId';
+                // Use direct download URL for videos
+                file['url'] = file['type'] == 'video' 
+                  ? 'https://drive.google.com/uc?export=download&id=$fileId'
+                  : 'https://drive.google.com/uc?export=view&id=$fileId';
               }
               return file;
             }).toList();
@@ -57,9 +59,9 @@ class _HomeScreenState extends State<HomeScreen> {
             });
           }
         }
-        if (mediaItems.isNotEmpty) {
-          _initializeFirstVideo();
-        }
+        // if (mediaItems.isNotEmpty) {
+        //   _initializeFirstVideo();
+        // }
       }
     } catch (e) {
       print('Error fetching media: $e');
@@ -77,98 +79,157 @@ class _HomeScreenState extends State<HomeScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return CarouselSlider.builder(
-      itemCount: mediaItems.length,
-      options: CarouselOptions(
-        height: 240,
-        viewportFraction: 1.0,
-        autoPlay: true,
-        autoPlayInterval: const Duration(seconds: 5),
-        onPageChanged: (index, reason) {
-          _handlePageChange(index);
-        },
-      ),
-      itemBuilder: (context, index, _) {
-        final media = mediaItems[index];
-        
-        if (media['type'] == 'video') {
-          return _buildVideoItem(media['url']);
-        } else {
-          return Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-            ),
-            child: Image.network(
-              media['url'],
-              fit: BoxFit.cover,
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return Center(
-                  child: CircularProgressIndicator(
-                    value: loadingProgress.expectedTotalBytes != null
-                        ? loadingProgress.cumulativeBytesLoaded / 
-                          loadingProgress.expectedTotalBytes!
-                        : null,
+    return Stack(
+      children: [
+        CarouselSlider.builder(
+          itemCount: mediaItems.length,
+          options: CarouselOptions(
+            height: 240,
+            viewportFraction: 0.85,
+            enlargeCenterPage: true,
+            enlargeFactor: 0.2,
+            autoPlay: false,
+            enableInfiniteScroll: mediaItems.length > 1,
+            onPageChanged: (index, reason) {
+              setState(() => _currentIndex = index);
+              if (reason != CarouselPageChangedReason.manual) {
+                _handlePageChange(index);
+              }
+            },
+          ),
+          itemBuilder: (context, index, _) {
+            final media = mediaItems[index];
+            
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 5),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(15),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
                   ),
-                );
-              },
-              errorBuilder: (context, error, stackTrace) {
-                print('Image error: $error');
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(15),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (media['type'] == 'video')
+                      _buildVideoItem(media['url'])
+                    else
+                      Image.network(
+                        media['url'],
+                        fit: BoxFit.cover,
+                        cacheWidth: 800,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Center(
+                            child: CircularProgressIndicator(
+                              value: loadingProgress.expectedTotalBytes != null
+                                  ? loadingProgress.cumulativeBytesLoaded / 
+                                    loadingProgress.expectedTotalBytes!
+                                  : null,
+                            ),
+                          );
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        // Add dots indicator
+        if (mediaItems.length > 1)
+          Positioned(
+            bottom: 10,
+            left: 0,
+            right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: mediaItems.asMap().entries.map((entry) {
                 return Container(
-                  color: Colors.grey[300],
-                  child: const Center(
-                    child: Icon(Icons.error_outline, size: 40, color: Colors.red),
+                  width: 8.0,
+                  height: 8.0,
+                  margin: const EdgeInsets.symmetric(horizontal: 4.0),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withOpacity(
+                      _currentIndex == entry.key ? 0.9 : 0.4,
+                    ),
                   ),
                 );
-              },
+              }).toList(),
             ),
-          );
-        }
-      },
+          ),
+      ],
     );
   }
-
-  void _initializeFirstVideo() async {
-    if (mediaItems.first['type'] == 'video') {
-      _videoController = VideoPlayerController.network(mediaItems.first['url'])
-        ..initialize().then((_) {
-          setState(() {});
-          _videoController?.play();
-        });
-    }
-  }
-
   Widget _buildVideoItem(String url) {
-    if (_videoController?.dataSource != url) {
-      _videoController?.dispose();
-      _videoController = VideoPlayerController.network(url)
-        ..initialize().then((_) {
-          setState(() {});
-          _videoController?.play();
+    try {
+      if (_videoController?.dataSource != url) {
+        _videoController?.dispose();
+        _videoController = VideoPlayerController.network(
+          url,
+          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+        )..initialize().then((_) {
+          if (mounted) {
+            setState(() {});
+            _videoController?.play();
+            _videoController?.setLooping(true);  // Enable video looping
+          }
         });
-    }
+      }
 
-    return _videoController?.value.isInitialized == true
-        ? AspectRatio(
-            aspectRatio: _videoController!.value.aspectRatio,
-            child: VideoPlayer(_videoController!),
-          )
-        : const Center(child: CircularProgressIndicator());
+      return _videoController?.value.isInitialized == true
+          ? AspectRatio(
+              aspectRatio: _videoController!.value.aspectRatio,
+              child: VideoPlayer(_videoController!),
+            )
+          : const Center(
+              child: CircularProgressIndicator(color: Colors.white),
+            );
+    } catch (e) {
+      print('Video player error: $e');
+      return Container(
+        color: Colors.black87,
+        child: const Center(
+          child: Icon(Icons.error_outline, size: 50, color: Colors.red),
+        ),
+      );
+    }
   }
 
   void _handlePageChange(int index) {
-    final currentMedia = mediaItems[index];
-    if (currentMedia['type'] == 'video') {
-      _videoController?.dispose();
-      _videoController = VideoPlayerController.network(currentMedia['url'])
-        ..initialize().then((_) {
-          setState(() {});
-          _videoController?.play();
+    try {
+      final currentMedia = mediaItems[index];
+      if (currentMedia['type'] == 'video') {
+        _videoController?.dispose();
+        _videoController = VideoPlayerController.network(
+          currentMedia['url'],
+          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+        )..initialize().then((_) {
+          if (mounted) {
+            setState(() {});
+            _videoController?.play();
+            _videoController?.setLooping(true);  // Enable video looping
+          }
         });
-    } else {
-      _videoController?.dispose();
-      _videoController = null;
+      } else {
+        _videoController?.dispose();
+        _videoController = null;
+        Future.delayed(const Duration(seconds: 5), () {
+          if (mounted && _currentIndex == index) {
+            _carouselController?.nextPage();
+          }
+        });
+      }
+      setState(() => _currentIndex = index);
+    } catch (e) {
+      print('Page change error: $e');
     }
   }
 
