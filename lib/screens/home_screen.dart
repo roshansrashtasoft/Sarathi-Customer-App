@@ -1,14 +1,13 @@
+import 'package:carousel_slider/carousel_slider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:sarathi_customer/screens/profile_screen.dart';
-import 'package:sarathi_customer/screens/web_view.dart';
 import 'package:sarathi_customer/services/customer_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
-
+import 'package:video_player/video_player.dart';
 import 'document_slider_screen.dart';
 import 'login_screen.dart';
 
@@ -20,15 +19,169 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  List<Map<String, dynamic>> mediaItems = [];
+  VideoPlayerController? _videoController;
   final CustomerService _customerService = CustomerService();
   late final Stream<QuerySnapshot> _customerStream;
-  DateFormat dateFormat = DateFormat("dd MMMM yyyy");
-
+  
   @override
   void initState() {
     super.initState();
+    _carouselController = CarouselSliderController();
+    _fetchMedia();
     _customerStream = _customerService.getCurrentCustomerStream();
   }
+
+  Future<void> _fetchMedia() async {
+    try {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('marketing_images')
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        for (var doc in querySnapshot.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          if (data['files'] != null) {
+            final files = List<Map<String, dynamic>>.from(data['files']);
+            // Convert Google Drive view URLs to direct download URLs
+            final processedFiles = files.map((file) {
+              if (file['url'] != null && file['url'].toString().contains('drive.google.com')) {
+                final fileId = _extractDriveFileId(file['url'].toString());
+                file['url'] = 'https://drive.google.com/uc?export=view&id=$fileId';
+              }
+              return file;
+            }).toList();
+            
+            setState(() {
+              mediaItems.addAll(processedFiles);
+            });
+          }
+        }
+        if (mediaItems.isNotEmpty) {
+          _initializeFirstVideo();
+        }
+      }
+    } catch (e) {
+      print('Error fetching media: $e');
+    }
+  }
+
+  String _extractDriveFileId(String url) {
+    final RegExp regExp = RegExp(r'/d/([a-zA-Z0-9_-]+)');
+    final match = regExp.firstMatch(url);
+    return match?.group(1) ?? '';
+  }
+
+  Widget _buildSlider() {
+    if (mediaItems.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return CarouselSlider.builder(
+      itemCount: mediaItems.length,
+      options: CarouselOptions(
+        height: 240,
+        viewportFraction: 1.0,
+        autoPlay: true,
+        autoPlayInterval: const Duration(seconds: 5),
+        onPageChanged: (index, reason) {
+          _handlePageChange(index);
+        },
+      ),
+      itemBuilder: (context, index, _) {
+        final media = mediaItems[index];
+        
+        if (media['type'] == 'video') {
+          return _buildVideoItem(media['url']);
+        } else {
+          return Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+            ),
+            child: Image.network(
+              media['url'],
+              fit: BoxFit.cover,
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return Center(
+                  child: CircularProgressIndicator(
+                    value: loadingProgress.expectedTotalBytes != null
+                        ? loadingProgress.cumulativeBytesLoaded / 
+                          loadingProgress.expectedTotalBytes!
+                        : null,
+                  ),
+                );
+              },
+              errorBuilder: (context, error, stackTrace) {
+                print('Image error: $error');
+                return Container(
+                  color: Colors.grey[300],
+                  child: const Center(
+                    child: Icon(Icons.error_outline, size: 40, color: Colors.red),
+                  ),
+                );
+              },
+            ),
+          );
+        }
+      },
+    );
+  }
+
+  void _initializeFirstVideo() async {
+    if (mediaItems.first['type'] == 'video') {
+      _videoController = VideoPlayerController.network(mediaItems.first['url'])
+        ..initialize().then((_) {
+          setState(() {});
+          _videoController?.play();
+        });
+    }
+  }
+
+  Widget _buildVideoItem(String url) {
+    if (_videoController?.dataSource != url) {
+      _videoController?.dispose();
+      _videoController = VideoPlayerController.network(url)
+        ..initialize().then((_) {
+          setState(() {});
+          _videoController?.play();
+        });
+    }
+
+    return _videoController?.value.isInitialized == true
+        ? AspectRatio(
+            aspectRatio: _videoController!.value.aspectRatio,
+            child: VideoPlayer(_videoController!),
+          )
+        : const Center(child: CircularProgressIndicator());
+  }
+
+  void _handlePageChange(int index) {
+    final currentMedia = mediaItems[index];
+    if (currentMedia['type'] == 'video') {
+      _videoController?.dispose();
+      _videoController = VideoPlayerController.network(currentMedia['url'])
+        ..initialize().then((_) {
+          setState(() {});
+          _videoController?.play();
+        });
+    } else {
+      _videoController?.dispose();
+      _videoController = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _videoController?.dispose();
+    super.dispose();
+  }
+  int _currentIndex = 0;
+  DateFormat dateFormat = DateFormat("dd MMMM yyyy");
+  CarouselSliderController? _carouselController;
+
+
 
   String _formatTimestamp(dynamic timestamp) {
     if (timestamp == null) return 'N/A';
@@ -45,91 +198,184 @@ class _HomeScreenState extends State<HomeScreen> {
     return 'N/A';
   }
 
+  // Future<void> _fetchMedia() async {
+  //   final doc = await FirebaseFirestore.instance
+  //       .collection('marketing_images')
+  //       .get();
+  //
+  //   if (doc.docs.isNotEmpty) {
+  //     final files = doc.docs.first['files'];
+  //     setState(() {
+  //       mediaItems = List<Map<String, dynamic>>.from(files);
+  //     });
+  //     _prepareVideoIfNeeded(0);
+  //   }
+  // }
+
+  void _prepareVideoIfNeeded(int index) async {
+    final media = mediaItems[index];
+    if (media['type'] == 'video') {
+      _videoController?.dispose();
+      _videoController = VideoPlayerController.network(media['url']);
+      await _videoController!.initialize();
+      _videoController!.play();
+      _videoController!.setLooping(false);
+      _videoController!.addListener(() {
+        if (_videoController!.value.position >= _videoController!.value.duration) {
+          _carouselController?.nextPage();
+        }
+      });
+      setState(() {});
+    }
+  }
+
+  void _videoEndListener() {
+    if (_videoController != null &&
+        _videoController!.value.position >= _videoController!.value.duration &&
+        !_videoController!.value.isPlaying) {
+      _carouselController?.nextPage();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        forceMaterialTransparency: true,
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: StreamBuilder<QuerySnapshot>(
-          stream: _customerStream,
-          builder: (context, snapshot) {
-            return IconButton(
-              icon: const Icon(Icons.person_outline, color: Colors.black87),
-              onPressed: () {
-                if (snapshot.hasData) {
-                  showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    backgroundColor: Colors.transparent,
-                    builder: (context) => ProfileScreen(
-                      userData: snapshot.data!.docs.first.data() as Map<String, dynamic>,
-                    ),
+      appBar: _buildAppbar(),
+      body: Column(
+        children: [
+          SizedBox(
+            height: 240,
+            child: _buildSlider(),
+          ),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: _customerStream,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                if (snapshot.hasError || !snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return Center(
+                    child: Text('No documents available', style: TextStyle(color: Colors.grey[600])),
                   );
                 }
-              },
-            );
-          },
-        ),
-        title: const Text(
-          'Sarathi Innovations',
-          style: TextStyle(
-            color: Colors.black87,
-            fontWeight: FontWeight.bold,
-            fontSize: 22,
-          ),
-        ),
-        actions: [
-          IconButton(
-            onPressed: () => handleLogout(context),
-            icon: const Icon(Icons.logout, color: Colors.black87)
-          )
-        ],
-      ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _customerStream,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
 
-          if (snapshot.hasError || !snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return Center(
-              child: Text('No documents available', style: TextStyle(color: Colors.grey[600])),
-            );
-          }
+                final data = snapshot.data!.docs.first.data() as Map<String, dynamic>;
 
-          final data = snapshot.data!.docs.first.data() as Map<String, dynamic>;
-
-          return SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 24),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (data['documents'] != null) ...[
-                        _buildSectionTitle('Documents'),
-                        const SizedBox(height: 16),
-                        _buildDocumentsGrid(data['documents'] as List),
+                return SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (data['documents'] != null) ...[
+                          const SizedBox(height: 24),
+                          _buildSectionTitle('Documents'),
+                          const SizedBox(height: 16),
+                          _buildDocumentsGrid(data['documents'] as List),
+                        ],
+                        const SizedBox(height: 32),
                       ],
-                      const SizedBox(height: 32),
-                    ],
+                    ),
                   ),
-                ),
-              ],
+                );
+              },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
+
+  PreferredSizeWidget _buildAppbar() {
+    return AppBar(
+      forceMaterialTransparency: true,
+      backgroundColor: Colors.white,
+      elevation: 0,
+      leading: StreamBuilder<QuerySnapshot>(
+        stream: _customerStream,
+        builder: (context, snapshot) {
+          return IconButton(
+            icon: const Icon(Icons.person_outline, color: Colors.black87),
+            onPressed: () {
+              if (snapshot.hasData) {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (context) => ProfileScreen(
+                    userData: snapshot.data!.docs.first.data() as Map<String, dynamic>,
+                  ),
+                );
+              }
+            },
+          );
+        },
+      ),
+      title: const Text(
+        'Sarathi Innovations',
+        style: TextStyle(
+          color: Colors.black87,
+          fontWeight: FontWeight.bold,
+          fontSize: 22,
+        ),
+      ),
+      actions: [
+        IconButton(
+          onPressed: () => handleLogout(context),
+          icon: const Icon(Icons.logout, color: Colors.black87),
+        )
+      ],
+    );
+  }
+
+
+  // Widget _buildSlider() {
+  //   return mediaItems.isEmpty
+  //       ? const Center(child: CircularProgressIndicator())
+  //       : CarouselSlider.builder(
+  //     itemCount: mediaItems.length,
+  //     carouselController: _carouselController,
+  //     options: CarouselOptions(
+  //       viewportFraction: 1.0,
+  //       autoPlay: false,
+  //       height: double.infinity,
+  //       onPageChanged: (index, reason) {
+  //         setState(() => _currentIndex = index);
+  //         _prepareVideoIfNeeded(index);
+  //       },
+  //     ),
+  //     itemBuilder: (context, index, _) {
+  //       final media = mediaItems[index];
+  //       final url = media['url'];
+  //
+  //       if (media['type'] == 'image') {
+  //         return Image.network(
+  //           url,
+  //           fit: BoxFit.cover,
+  //           width: double.infinity,
+  //           errorBuilder: (context, error, stackTrace) =>
+  //           const Center(child: Text("Image failed to load")),
+  //         );
+  //       } else if (media['type'] == 'video') {
+  //         if (_videoController != null && _videoController!.value.isInitialized) {
+  //           return AspectRatio(
+  //             aspectRatio: _videoController!.value.aspectRatio,
+  //             child: VideoPlayer(_videoController!),
+  //           );
+  //         } else {
+  //           return const Center(child: CircularProgressIndicator());
+  //         }
+  //       } else {
+  //         return const Center(child: Text("Unsupported media type"));
+  //       }
+  //     },
+  //   );
+  // }
+
 
   Widget _buildSectionTitle(String title) {
     return Text(
@@ -141,58 +387,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
-  Widget _buildDetailCard(List<Widget> children) {
-    return Card(
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(children: children),
-      ),
-    );
-  }
-
-  // Widget _buildDetailRow(String label, String? value) {
-  //   return Padding(
-  //     padding: const EdgeInsets.symmetric(vertical: 12),
-  //     child: Row(
-  //       crossAxisAlignment: CrossAxisAlignment.start,
-  //       children: [
-  //         SizedBox(
-  //           width: 100,
-  //           child: Text(
-  //             label,
-  //             style: TextStyle(
-  //               color: Colors.grey[600],
-  //               fontSize: 15,
-  //               fontWeight: FontWeight.w500,
-  //             ),
-  //           ),
-  //         ),
-  //         Expanded(
-  //           child: Text(
-  //             value ?? 'N/A',
-  //             style: const TextStyle(
-  //               fontSize: 15,
-  //               fontWeight: FontWeight.w500,
-  //               color: Colors.black87,
-  //             ),
-  //           ),
-  //         ),
-  //       ],
-  //     ),
-  //   );
-  // }
 
   Widget _buildDocumentsGrid(List documents) {
     final List<Map<String, dynamic>> typedDocs = 
@@ -360,9 +554,4 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _launchUrl(String url) async {
-    if (!await launchUrl(Uri.parse(url), mode: LaunchMode.inAppWebView)) {
-      throw Exception('Could not launch $url');
-    }
-  }
 }
