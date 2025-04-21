@@ -1,15 +1,20 @@
+import 'dart:io';
+
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:sarathi_customer/screens/profile_screen.dart';
 import 'package:sarathi_customer/services/customer_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import 'document_slider_screen.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'login_screen.dart';
+import 'package:dio/dio.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,7 +28,9 @@ class _HomeScreenState extends State<HomeScreen> {
   VideoPlayerController? _videoController;
   final CustomerService _customerService = CustomerService();
   late final Stream<QuerySnapshot> _customerStream;
-  
+  final Dio _dio = Dio();
+  final Map<String, double> _downloadProgress = {};
+
   @override
   void initState() {
     super.initState();
@@ -59,9 +66,6 @@ class _HomeScreenState extends State<HomeScreen> {
             });
           }
         }
-        // if (mediaItems.isNotEmpty) {
-        //   _initializeFirstVideo();
-        // }
       }
     } catch (e) {
       print('Error fetching media: $e');
@@ -72,6 +76,99 @@ class _HomeScreenState extends State<HomeScreen> {
     final RegExp regExp = RegExp(r'/d/([a-zA-Z0-9_-]+)');
     final match = regExp.firstMatch(url);
     return match?.group(1) ?? '';
+  }
+  final Map<String, VideoPlayerController> _cachedVideoControllers = {};
+
+  Future<String> _getCachedVideoPath(String url) async {
+    final fileId = _extractDriveFileId(url);
+    final dir = await getApplicationDocumentsDirectory();
+    return '${dir.path}/$fileId.mp4';
+  }
+
+  Future<String> _ensureVideoCached(String url) async {
+    final path = await _getCachedVideoPath(url);
+    final file = File(path);
+    if (await file.exists()) {
+      return file.path;
+    }
+    try {
+      await _dio.download(
+        url,
+        path,
+        onReceiveProgress: (received, total) {
+          if (total != -1) {
+            setState(() {
+              _downloadProgress[url] = received / total;
+            });
+          }
+        },
+      );
+      return file.path;
+    } catch (e) {
+      print('Video download error: $e');
+      return url;
+    }
+  }
+
+  Widget _buildVideoItem(String url) {
+    return FutureBuilder<String>(
+      future: _ensureVideoCached(url),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          final progress = _downloadProgress[url] ?? 0.0;
+          return Center(
+            child: CircularProgressIndicator(
+              value: progress > 0 ? progress : null,
+              color: Colors.white,
+            ),
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Center(
+            child: Icon(Icons.error_outline, color: Colors.red, size: 50),
+          );
+        }
+        final videoPath = snapshot.data!;
+        if (_cachedVideoControllers.containsKey(videoPath)) {
+          _videoController = _cachedVideoControllers[videoPath];
+          if (!_videoController!.value.isPlaying) {
+            _videoController!.play();
+          }
+        } else {
+          _videoController?.dispose();
+          _videoController = videoPath.startsWith('/')
+              ? VideoPlayerController.file(File(videoPath))
+              : VideoPlayerController.network(videoPath);
+          _videoController!.initialize().then((_) {
+            if (mounted) {
+              setState(() {});
+              _videoController?.play();
+              _videoController?.setLooping(true);
+              _cachedVideoControllers[videoPath] = _videoController!;
+            }
+          });
+        }
+        return _videoController?.value.isInitialized == true
+            ? AspectRatio(
+                aspectRatio: _videoController!.value.aspectRatio,
+                child: VideoPlayer(_videoController!),
+              )
+            : const Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _cachedVideoControllers.values) {
+      controller.dispose();
+    }
+    _cachedVideoControllers.clear();
+    _videoController?.dispose();
+    _dio.close();
+    super.dispose();
   }
 
   Widget _buildSlider() {
@@ -99,7 +196,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           itemBuilder: (context, index, _) {
             final media = mediaItems[index];
-            
+
             return Container(
               margin: const EdgeInsets.symmetric(horizontal: 5),
               decoration: BoxDecoration(
@@ -120,21 +217,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     if (media['type'] == 'video')
                       _buildVideoItem(media['url'])
                     else
-                      Image.network(
-                        media['url'],
+                      CachedNetworkImage(
+                        imageUrl: media['url'],
                         fit: BoxFit.cover,
-                        cacheWidth: 800,
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return Center(
-                            child: CircularProgressIndicator(
-                              value: loadingProgress.expectedTotalBytes != null
-                                  ? loadingProgress.cumulativeBytesLoaded / 
-                                    loadingProgress.expectedTotalBytes!
-                                  : null,
-                            ),
-                          );
-                        },
+                        memCacheWidth: 800,
+                        placeholder: (context, url) => Center(
+                          child: CircularProgressIndicator(),
+                        ),
+                        errorWidget: (context, url, error) => Icon(Icons.error),
                       ),
                   ],
                 ),
@@ -142,7 +232,6 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           },
         ),
-        // Add dots indicator
         if (mediaItems.length > 1)
           Positioned(
             bottom: 10,
@@ -168,40 +257,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ],
     );
   }
-  Widget _buildVideoItem(String url) {
-    try {
-      if (_videoController?.dataSource != url) {
-        _videoController?.dispose();
-        _videoController = VideoPlayerController.network(
-          url,
-          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-        )..initialize().then((_) {
-          if (mounted) {
-            setState(() {});
-            _videoController?.play();
-            _videoController?.setLooping(true);  // Enable video looping
-          }
-        });
-      }
-
-      return _videoController?.value.isInitialized == true
-          ? AspectRatio(
-              aspectRatio: _videoController!.value.aspectRatio,
-              child: VideoPlayer(_videoController!),
-            )
-          : const Center(
-              child: CircularProgressIndicator(color: Colors.white),
-            );
-    } catch (e) {
-      print('Video player error: $e');
-      return Container(
-        color: Colors.black87,
-        child: const Center(
-          child: Icon(Icons.error_outline, size: 50, color: Colors.red),
-        ),
-      );
-    }
-  }
 
   void _handlePageChange(int index) {
     try {
@@ -215,7 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
           if (mounted) {
             setState(() {});
             _videoController?.play();
-            _videoController?.setLooping(true);  // Enable video looping
+            _videoController?.setLooping(true);
           }
         });
       } else {
@@ -231,12 +286,6 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       print('Page change error: $e');
     }
-  }
-
-  @override
-  void dispose() {
-    _videoController?.dispose();
-    super.dispose();
   }
   int _currentIndex = 0;
   DateFormat dateFormat = DateFormat("dd MMMM yyyy");
@@ -257,45 +306,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     return 'N/A';
-  }
-
-  // Future<void> _fetchMedia() async {
-  //   final doc = await FirebaseFirestore.instance
-  //       .collection('marketing_images')
-  //       .get();
-  //
-  //   if (doc.docs.isNotEmpty) {
-  //     final files = doc.docs.first['files'];
-  //     setState(() {
-  //       mediaItems = List<Map<String, dynamic>>.from(files);
-  //     });
-  //     _prepareVideoIfNeeded(0);
-  //   }
-  // }
-
-  void _prepareVideoIfNeeded(int index) async {
-    final media = mediaItems[index];
-    if (media['type'] == 'video') {
-      _videoController?.dispose();
-      _videoController = VideoPlayerController.network(media['url']);
-      await _videoController!.initialize();
-      _videoController!.play();
-      _videoController!.setLooping(false);
-      _videoController!.addListener(() {
-        if (_videoController!.value.position >= _videoController!.value.duration) {
-          _carouselController?.nextPage();
-        }
-      });
-      setState(() {});
-    }
-  }
-
-  void _videoEndListener() {
-    if (_videoController != null &&
-        _videoController!.value.position >= _videoController!.value.duration &&
-        !_videoController!.value.isPlaying) {
-      _carouselController?.nextPage();
-    }
   }
 
   @override
@@ -392,51 +402,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ],
     );
   }
-
-
-  // Widget _buildSlider() {
-  //   return mediaItems.isEmpty
-  //       ? const Center(child: CircularProgressIndicator())
-  //       : CarouselSlider.builder(
-  //     itemCount: mediaItems.length,
-  //     carouselController: _carouselController,
-  //     options: CarouselOptions(
-  //       viewportFraction: 1.0,
-  //       autoPlay: false,
-  //       height: double.infinity,
-  //       onPageChanged: (index, reason) {
-  //         setState(() => _currentIndex = index);
-  //         _prepareVideoIfNeeded(index);
-  //       },
-  //     ),
-  //     itemBuilder: (context, index, _) {
-  //       final media = mediaItems[index];
-  //       final url = media['url'];
-  //
-  //       if (media['type'] == 'image') {
-  //         return Image.network(
-  //           url,
-  //           fit: BoxFit.cover,
-  //           width: double.infinity,
-  //           errorBuilder: (context, error, stackTrace) =>
-  //           const Center(child: Text("Image failed to load")),
-  //         );
-  //       } else if (media['type'] == 'video') {
-  //         if (_videoController != null && _videoController!.value.isInitialized) {
-  //           return AspectRatio(
-  //             aspectRatio: _videoController!.value.aspectRatio,
-  //             child: VideoPlayer(_videoController!),
-  //           );
-  //         } else {
-  //           return const Center(child: CircularProgressIndicator());
-  //         }
-  //       } else {
-  //         return const Center(child: Text("Unsupported media type"));
-  //       }
-  //     },
-  //   );
-  // }
-
 
   Widget _buildSectionTitle(String title) {
     return Text(

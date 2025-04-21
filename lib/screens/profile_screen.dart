@@ -38,11 +38,6 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildLoading() {
-    return const Center(
-      child: CircularProgressIndicator(),
-    );
-  }
 
   Widget _buildHandle() {
     return Center(

@@ -16,12 +16,10 @@ class DocumentSliderScreen extends StatefulWidget {
 
 class _DocumentSliderScreenState extends State<DocumentSliderScreen> {
   late PageController _pageController;
-  int _currentIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
   }
 
@@ -56,7 +54,6 @@ class _DocumentSliderScreenState extends State<DocumentSliderScreen> {
             itemCount: widget.documents.length,
             onPageChanged: (index) {
               setState(() {
-                _currentIndex = index;
               });
             },
             itemBuilder: (context, index) {
