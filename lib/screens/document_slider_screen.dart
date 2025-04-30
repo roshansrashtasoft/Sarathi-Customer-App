@@ -51,7 +51,6 @@ class _DocumentSliderScreenState extends State<DocumentSliderScreen> {
 
   Future<String> _downloadAndCachePdf(String url) async {
     try {
-      // Check if already cached in memory
       if (_cachedPaths.containsKey(url)) {
         final file = File(_cachedPaths[url]!);
         if (await file.exists() && (await file.length()) > 0) {
@@ -63,7 +62,6 @@ class _DocumentSliderScreenState extends State<DocumentSliderScreen> {
       final fileId = _extractDriveFileId(url);
       final filePath = '${dir.path}/$fileId.pdf';
 
-      // Check if file exists in storage
       final file = File(filePath);
       if (await file.exists()) {
         if ((await file.length()) > 0) {
@@ -96,40 +94,6 @@ class _DocumentSliderScreenState extends State<DocumentSliderScreen> {
     }
   }
 
-  Widget _buildPdfViewer(String url) {
-    // Check if already cached in memory
-    if (_cachedPaths.containsKey(url)) {
-      final file = File(_cachedPaths[url]!);
-      return SfPdfViewer.file(file);
-    }
-
-    return FutureBuilder<String>(
-      future: _downloadAndCachePdf(url),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(color: Colors.white),
-          );
-        }
-
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const Center(
-            child: Text(
-              'Error loading PDF',
-              style: TextStyle(color: Colors.white),
-            ),
-          );
-        }
-
-        return SfPdfViewer.file(
-          File(snapshot.data!),
-          canShowScrollHead: true,
-          enableDoubleTapZooming: true,
-        );
-      },
-    );
-  }
-
   @override
   void dispose() {
     _pageController.dispose();
@@ -156,7 +120,6 @@ class _DocumentSliderScreenState extends State<DocumentSliderScreen> {
 
   Future<String> _downloadAndCacheImage(String url) async {
     try {
-      // Check if already cached in memory
       if (_cachedPaths.containsKey(url)) {
         final file = File(_cachedPaths[url]!);
         if (await file.exists() && (await file.length()) > 0) {
@@ -168,7 +131,6 @@ class _DocumentSliderScreenState extends State<DocumentSliderScreen> {
       final fileId = _extractDriveFileId(url);
       final filePath = '${dir.path}/$fileId.jpg';
 
-      // Check if file exists in storage
       final file = File(filePath);
       if (await file.exists()) {
         if ((await file.length()) > 0) {
@@ -201,42 +163,6 @@ class _DocumentSliderScreenState extends State<DocumentSliderScreen> {
     }
   }
 
-  Widget _buildImageViewer(String url) {
-    // Check if already cached in memory
-    if (_cachedPaths.containsKey(url)) {
-      final file = File(_cachedPaths[url]!);
-      return Image.file(
-        file,
-        fit: BoxFit.contain,
-      );
-    }
-
-    return FutureBuilder<String>(
-      future: _downloadAndCacheImage(url),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(color: Colors.white),
-          );
-        }
-
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const Center(
-            child: Text(
-              'Error loading image',
-              style: TextStyle(color: Colors.white),
-            ),
-          );
-        }
-
-        return Image.file(
-          File(snapshot.data!),
-          fit: BoxFit.contain,
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -262,6 +188,68 @@ class _DocumentSliderScreenState extends State<DocumentSliderScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPdfViewer(String url) {
+    if (_cachedPaths.containsKey(url)) {
+      final file = File(_cachedPaths[url]!);
+      return SfPdfViewer.file(file);
+    }
+
+    return FutureBuilder<String>(
+      future: _downloadAndCachePdf(url),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          );
+        }
+
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(
+            child: Text(
+              'Error loading PDF',
+              style: TextStyle(color: Colors.white),
+            ),
+          );
+        }
+
+        return SfPdfViewer.file(
+          File(snapshot.data!),
+          canShowScrollHead: true,
+          enableDoubleTapZooming: true,
+        );
+      },
+    );
+  }
+
+  Widget _buildImageViewer(String url) {
+    if (_cachedPaths.containsKey(url)) {
+      final file = File(_cachedPaths[url]!);
+      return Image.file(file, fit: BoxFit.contain);
+    }
+
+    return FutureBuilder<String>(
+      future: _downloadAndCacheImage(url),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          );
+        }
+
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(
+            child: Text(
+              'Error loading image',
+              style: TextStyle(color: Colors.white),
+            ),
+          );
+        }
+
+        return Image.file(File(snapshot.data!), fit: BoxFit.contain);
+      },
     );
   }
 }
